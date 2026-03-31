@@ -1,0 +1,300 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Multi-tool Agent</title>
+<style>
+  *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+  body {
+    font-family: system-ui, sans-serif;
+    background: #f5f5f3;
+    color: #1a1a18;
+    min-height: 100vh;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    padding: 2rem 1rem;
+  }
+
+  h1 {
+    font-size: 1.25rem;
+    font-weight: 500;
+    margin-bottom: 1.5rem;
+    color: #3a3a38;
+  }
+
+  #chat {
+    width: 100%;
+    max-width: 720px;
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+    margin-bottom: 1.5rem;
+  }
+
+  .bubble {
+    padding: 0.85rem 1.1rem;
+    border-radius: 12px;
+    font-size: 0.9rem;
+    line-height: 1.6;
+    max-width: 90%;
+  }
+
+  .bubble.user {
+    background: #1a1a18;
+    color: #f5f5f3;
+    align-self: flex-end;
+  }
+
+  .bubble.assistant {
+    background: #fff;
+    border: 0.5px solid #e0dfd8;
+    align-self: flex-start;
+    white-space: pre-wrap;
+  }
+
+  .tool-block {
+    background: #f0efe8;
+    border: 0.5px solid #d8d7d0;
+    border-radius: 8px;
+    padding: 0.6rem 0.9rem;
+    font-size: 0.8rem;
+    font-family: monospace;
+    color: #5a5a58;
+    align-self: flex-start;
+    max-width: 90%;
+  }
+
+  .tool-block .label {
+    font-size: 0.7rem;
+    font-weight: 600;
+    letter-spacing: 0.05em;
+    text-transform: uppercase;
+    margin-bottom: 4px;
+  }
+
+  .tool-block.call .label  { color: #7a5af8; }
+  .tool-block.result .label { color: #0d9e75; }
+  .tool-block.error .label  { color: #e24b4a; }
+
+  .thinking {
+    font-size: 0.82rem;
+    color: #888;
+    align-self: flex-start;
+    padding: 0.4rem 0;
+    display: flex;
+    align-items: center;
+    gap: 6px;
+  }
+
+  .dot-anim span {
+    display: inline-block;
+    width: 5px; height: 5px;
+    border-radius: 50%;
+    background: #aaa;
+    animation: bounce 1.2s infinite;
+  }
+  .dot-anim span:nth-child(2) { animation-delay: 0.2s; }
+  .dot-anim span:nth-child(3) { animation-delay: 0.4s; }
+  @keyframes bounce {
+    0%, 80%, 100% { transform: translateY(0); }
+    40%           { transform: translateY(-5px); }
+  }
+
+  form {
+    width: 100%;
+    max-width: 720px;
+    background: #fff;
+    border: 0.5px solid #e0dfd8;
+    border-radius: 14px;
+    padding: 1rem;
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+  }
+
+  textarea {
+    width: 100%;
+    border: 0.5px solid #d8d7d0;
+    border-radius: 8px;
+    padding: 0.7rem 0.9rem;
+    font-size: 0.9rem;
+    font-family: inherit;
+    resize: vertical;
+    min-height: 72px;
+    outline: none;
+    background: #fafaf8;
+  }
+  textarea:focus { border-color: #aaa; }
+
+  .form-row {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    flex-wrap: wrap;
+  }
+
+  .file-label {
+    font-size: 0.82rem;
+    color: #666;
+    cursor: pointer;
+    border: 0.5px solid #d8d7d0;
+    border-radius: 8px;
+    padding: 6px 12px;
+    background: #f5f5f3;
+    transition: background 0.15s;
+  }
+  .file-label:hover { background: #eeeee8; }
+
+  #pdf-name {
+    font-size: 0.8rem;
+    color: #888;
+    flex: 1;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+
+  button[type="submit"] {
+    margin-left: auto;
+    background: #1a1a18;
+    color: #f5f5f3;
+    border: none;
+    border-radius: 8px;
+    padding: 8px 20px;
+    font-size: 0.88rem;
+    cursor: pointer;
+    transition: opacity 0.15s;
+  }
+  button[type="submit"]:hover   { opacity: 0.85; }
+  button[type="submit"]:disabled { opacity: 0.4; cursor: not-allowed; }
+</style>
+</head>
+<body>
+
+<h1>Research Agent </h1>
+
+<div id="chat"></div>
+
+<form id="agent-form">
+  <textarea id="question" placeholder="Ask anything — paste a URL, upload a PDF, or just ask a question..." required></textarea>
+  <div class="form-row">
+    <label class="file-label" for="pdf">
+      Attach PDF
+      <input type="file" id="pdf" name="pdf" accept=".pdf" style="display:none" onchange="showFilename(this)">
+    </label>
+    <span id="pdf-name">No file chosen</span>
+    <button type="submit" id="submit-btn">⮞</button>
+  </div>
+</form>
+
+<script>
+  const chat      = document.getElementById("chat");
+  const form      = document.getElementById("agent-form");
+  const submitBtn = document.getElementById("submit-btn");
+
+  function showFilename(input) {
+    document.getElementById("pdf-name").textContent =
+      input.files[0] ? input.files[0].name : "No file chosen";
+  }
+
+  function addBubble(cls, html) {
+    const el = document.createElement("div");
+    el.className = `bubble ${cls}`;
+    el.innerHTML = html;
+    chat.appendChild(el);
+    el.scrollIntoView({ behavior: "smooth", block: "end" });
+    return el;
+  }
+
+  function addToolBlock(cls, label, content) {
+    const el = document.createElement("div");
+    el.className = `tool-block ${cls}`;
+    el.innerHTML = `<div class="label">${label}</div><div>${escHtml(content)}</div>`;
+    chat.appendChild(el);
+    el.scrollIntoView({ behavior: "smooth", block: "end" });
+  }
+
+  function addThinking() {
+    const el = document.createElement("div");
+    el.className = "thinking dot-anim";
+    el.innerHTML = `Thinking <span></span><span></span><span></span>`;
+    chat.appendChild(el);
+    el.scrollIntoView({ behavior: "smooth", block: "end" });
+    return el;
+  }
+
+  function escHtml(str) {
+    return str.replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;");
+  }
+
+  form.addEventListener("submit", async (e) => {
+    e.preventDefault();
+
+    const question = document.getElementById("question").value.trim();
+    const pdfInput = document.getElementById("pdf");
+    if (!question) return;
+
+    addBubble("user", escHtml(question));
+
+    document.getElementById("question").value = "";
+    document.getElementById("pdf-name").textContent = "No file chosen";
+    submitBtn.disabled = true;
+
+    const thinking = addThinking();
+
+    const formData = new FormData();
+    formData.append("question", question);
+    if (pdfInput.files[0]) {
+      formData.append("pdf", pdfInput.files[0]);
+      pdfInput.value = "";
+    }
+
+    const resp = await fetch("/ask", { method: "POST", body: formData });
+    const reader = resp.body.getReader();
+    const decoder = new TextDecoder();
+    let buffer = "";
+
+    thinking.remove();
+
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done) break;
+
+      buffer += decoder.decode(value, { stream: true });
+      const lines = buffer.split("\n");
+      buffer = lines.pop();
+
+      for (const line of lines) {
+        if (!line.startsWith("data: ")) continue;
+        const raw = line.slice(6).trim();
+        if (raw === "[DONE]") { submitBtn.disabled = false; break; }
+
+        let evt;
+        try { evt = JSON.parse(raw); } catch { continue; }
+
+        if (evt.type === "tool_call") {
+          const p = evt.payload;
+          const inputStr = JSON.stringify(p.input || {}, null, 2);
+          addToolBlock("call", `Tool call: ${p.name}`, inputStr);
+
+        } else if (evt.type === "tool_result") {
+          const p = evt.payload;
+          addToolBlock("result", `Result from: ${p.name}`, p.result + (p.result.length >= 300 ? "…" : ""));
+
+        } else if (evt.type === "answer") {
+          addBubble("assistant", escHtml(evt.payload));
+
+        } else if (evt.type === "error") {
+          addToolBlock("error", "Error", evt.payload);
+        }
+      }
+    }
+
+    submitBtn.disabled = false;
+  });
+</script>
+</body>
+</html>
